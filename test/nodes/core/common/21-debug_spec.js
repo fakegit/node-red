@@ -21,22 +21,22 @@ var WebSocket = require('ws');
 
 describe('debug node', function() {
 
-    before(function(done) {
-        helper.startServer(done);
+    before(async function() {
+        return helper.startServer();
     });
 
-    after(function(done) {
-        helper.stopServer(done);
+    after(async function() {
+        return helper.stopServer();
     });
 
-    beforeEach(function (done) {
-        setTimeout(function() {
-            done();
-        }, 55);
-    });
+    // beforeEach(function (done) {
+    //     setTimeout(function() {
+    //         done();
+    //     }, 55);
+    // });
 
-    afterEach(function() {
-        helper.unload();
+    afterEach(function(done) {
+        helper.unload().then(() => done());
     });
 
 
@@ -173,9 +173,19 @@ describe('debug node', function() {
             websocket_test(function() {
                 n1.emit("input", {payload: new Error("oops")});
             }, function(msg) {
-                JSON.parse(msg).should.eql([{
-                    topic:"debug",data:{id:"n1",msg:'{"name":"Error","message":"oops"}',property:"payload",format:"error",path:"global"}
-                }]);
+                const fullMsg = JSON.parse(msg)
+                fullMsg[0].should.have.property('topic', 'debug')
+                fullMsg[0].should.have.property('data')
+                fullMsg[0].data.should.have.property('id', 'n1')
+                fullMsg[0].data.should.have.property('property', 'payload')
+                fullMsg[0].data.should.have.property('format', 'error')
+                fullMsg[0].data.should.have.property('path', 'global')
+                fullMsg[0].data.should.have.property('msg')
+                const msgData = JSON.parse(fullMsg[0].data.msg)
+                msgData.should.have.property('__enc__', true)
+                msgData.should.have.property('type', 'error')
+                msgData.data.should.have.property('name', 'Error')
+                msgData.data.should.have.property('message', 'oops')
             }, done);
         });
     });
@@ -260,6 +270,38 @@ describe('debug node', function() {
                 JSON.parse(msg).should.eql([{
                     topic:"debug",
                     data:{id:"n1",msg:'{"type":"foo"}',property:"payload",format:"Object",path:"global"}
+                }]);
+            }, done);
+        });
+    });
+
+    it('should publish an object with no-prototype-builtins', function(done) {
+        const flow = [{id:"n1", type:"debug" }];
+        helper.load(debugNode, flow, function() {
+            const n1 = helper.getNode("n1");
+            const payload = Object.create(null);
+            payload.type = 'foo';
+            websocket_test(function() {
+                n1.emit("input", {payload: payload});
+            }, function(msg) {
+                JSON.parse(msg).should.eql([{
+                    topic:"debug",
+                    data:{id:"n1",msg:'{"type":"foo"}',property:"payload",format:"Object",path:"global"}
+                }]);
+            }, done);
+        });
+    });
+
+    it('should publish an object with overriden hasOwnProperty', function(done) {
+        const flow = [{id:"n1", type:"debug" }];
+        helper.load(debugNode, flow, function() {
+            const n1 = helper.getNode("n1");
+            websocket_test(function() {
+                n1.emit("input", {payload: {type:'foo', hasOwnProperty: null}});
+            }, function(msg) {
+                JSON.parse(msg).should.eql([{
+                    topic:"debug",
+                    data:{id:"n1",msg:'{"type":"foo","hasOwnProperty":null}',property:"payload",format:"Object",path:"global"}
                 }]);
             }, done);
         });

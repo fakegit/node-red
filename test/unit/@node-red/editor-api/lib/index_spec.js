@@ -61,7 +61,7 @@ describe("api/index", function() {
         should.not.exist(api.httpAdmin);
         done();
     });
-    describe('initalises admin api without adminAuth', function(done) {
+    describe('initalises admin api without adminAuth', function() {
         before(function() {
             beforeEach();
             api.init({},{},{},{});
@@ -78,7 +78,7 @@ describe("api/index", function() {
         })
     });
 
-    describe('initalises admin api without editor', function(done) {
+    describe('initalises admin api without editor', function() {
         before(function() {
             beforeEach();
             api.init({ disableEditor: true },{},{},{});
@@ -95,7 +95,7 @@ describe("api/index", function() {
         })
     });
 
-    describe('initialises api with admin middleware', function(done) {
+    describe('initialises api with admin middleware', function() {
         it('ignores non-function values',function(done) {
             api.init({ httpAdminRoot: true, httpAdminMiddleware: undefined },{},{},{});
             const middlewareFound = api.httpAdmin._router.stack.filter((layer) => layer.name === 'testMiddleware')
@@ -112,7 +112,7 @@ describe("api/index", function() {
         });
     });
 
-    describe('initialises api with authentication enabled', function(done) {
+    describe('initialises api with authentication enabled', function() {
 
         it('enables an oauth/openID based authentication mechanism',function(done) {
             const stub = sinon.stub(apiAuth, 'genericStrategy').callsFake(function(){});
@@ -135,7 +135,7 @@ describe("api/index", function() {
 
     });
 
-    describe('initialises api with custom cors config', function (done) {
+    describe('initialises api with custom cors config', function () {
         const httpAdminCors = {
             origin: "*",
             methods: "GET,PUT,POST,DELETE"
@@ -144,19 +144,19 @@ describe("api/index", function() {
         it('uses default cors middleware when user settings absent', function(done){
             api.init({ httpAdminRoot: true }, {}, {}, {});
             const middlewareFound = api.httpAdmin._router.stack.filter((layer) => layer.name === 'corsMiddleware')
-            should(middlewareFound).be.length(1);
+            should(middlewareFound).be.length(0);
             done();
         })
 
         it('enables custom cors middleware when settings present', function(done){
             api.init({ httpAdminRoot: true, httpAdminCors }, {}, {}, {});
             const middlewareFound = api.httpAdmin._router.stack.filter((layer) => layer.name === 'corsMiddleware')
-            should(middlewareFound).be.length(2);
+            should(middlewareFound).be.length(1);
             done();
         })
     });
 
-    describe('editor start', function (done) {
+    describe('editor start', function () {
 
         it('cannot be started when editor is disabled', function (done) {
             const stub = sinon.stub(apiEditor, 'start').callsFake(function () {

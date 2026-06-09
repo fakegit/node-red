@@ -25,6 +25,7 @@ var NR_TEST_UTILS = require("nr-test-utils");
 var installer = NR_TEST_UTILS.require("@node-red/registry/lib/installer");
 var registry = NR_TEST_UTILS.require("@node-red/registry/lib/index");
 var typeRegistry = NR_TEST_UTILS.require("@node-red/registry/lib/registry");
+let pluginRegistry = NR_TEST_UTILS.require("@node-red/registry/lib/plugins");
 const { events, exec, log, hooks } =  NR_TEST_UTILS.require("@node-red/util");
 
 describe('nodes/registry/installer', function() {
@@ -63,7 +64,12 @@ describe('nodes/registry/installer', function() {
         if (typeRegistry.getModuleInfo.restore) {
             typeRegistry.getModuleInfo.restore();
         }
-
+        if (typeRegistry.setModulePendingUpdated.restore) {
+            typeRegistry.setModulePendingUpdated.restore();
+        }
+        if (pluginRegistry.removeModule.restore) {
+            pluginRegistry.removeModule.restore();
+        }
         if (fs.statSync.restore) {
             fs.statSync.restore();
         }
@@ -252,6 +258,32 @@ describe('nodes/registry/installer', function() {
             }).catch(done);
         });
 
+        it("succeeds when file path is valid node-red module", function(done) {
+            var nodeInfo = {nodes:{module:"foo",types:["a"]}};
+
+            var res = {
+                code: 0,
+                stdout:"",
+                stderr:""
+            }
+            var p = Promise.resolve(res);
+            p.catch((err)=>{});
+            execResponse = p;
+
+            var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                return Promise.resolve(nodeInfo);
+            });
+
+            installer.installModule("foo",null,"/example path/foo-0.1.1.tgz").then(function(info) {
+                const lastCallArgs = exec.run.lastCall.args[1];
+                lastCallArgs[0].should.match(/npm\/bin\/npm-cli\.js$/)
+                const remainingArgs = lastCallArgs.slice(1);
+                remainingArgs.should.eql([ 'install', '--no-audit', '--no-update-notifier', '--no-fund', '--save', '--save-prefix=~', '--omit=dev', '--engine-strict', '--', '/example path/foo-0.1.1.tgz' ]);
+                info.should.eql(nodeInfo);
+                done();
+            }).catch(done);
+        });
+
         it("triggers preInstall and postInstall hooks", function(done) {
             let receivedPreEvent,receivedPostEvent;
             hooks.add("preInstall", function(event) { event.args = ["a"]; receivedPreEvent = event; })
@@ -268,7 +300,7 @@ describe('nodes/registry/installer', function() {
 
             installer.installModule("this_wont_exist","1.2.3").then(function(info) {
                 exec.run.called.should.be.true();
-                exec.run.lastCall.args[1].should.eql([ 'install', 'a', 'this_wont_exist@1.2.3' ]);
+                exec.run.lastCall.args[1].slice(1).should.eql([ 'install', 'a', '--', 'this_wont_exist@1.2.3' ]);
                 info.should.eql(nodeInfo);
                 should.exist(receivedPreEvent)
                 receivedPreEvent.should.have.property("module","this_wont_exist")
@@ -298,8 +330,11 @@ describe('nodes/registry/installer', function() {
             hooks.add("preInstall", function(event) { return false })
             hooks.add("postInstall", function(event) { receivedEvent = event; })
             var nodeInfo = {nodes:{module:"foo",types:["a"]}};
+            var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                return Promise.resolve(nodeInfo);
+            });
 
-            installer.installModule("this_wont_exist","1.2.3").catch(function(err) {
+            installer.installModule("this_wont_exist","1.2.3").then(function() {
                 exec.run.called.should.be.false();
                 should.exist(receivedEvent);
                 done();
@@ -316,6 +351,147 @@ describe('nodes/registry/installer', function() {
             }).catch(done);
         });
 
+        describe("allowUpdate lists", function() {
+            it("rejects when update requested with allowUpdate set to false", function(done) {
+                installer.init({ externalModules: { palette: { allowUpdate: false } } })
+                sinon.stub(typeRegistry,"getModuleInfo").callsFake(function() {
+                    return {
+                        user: true,
+                        version: "0.1.1"
+                    }
+                });
+                installer.installModule("this_wont_exist","0.1.2").catch(function(err) {
+                    err.code.should.be.eql('update_not_allowed');
+                    done();
+                }).catch(done);
+            })
+            it("succeeds when update requested with module not on denyUpdateList", function(done) {
+                installer.init({ externalModules: { palette: { denyUpdateList: ['this_wont_exist'] } } })
+                sinon.stub(typeRegistry,"getModuleInfo").callsFake(function() {
+                    return {
+                        user: true,
+                        version: "0.1.1"
+                    }
+                });
+
+                var res = {
+                    code: 0,
+                    stdout:"",
+                    stderr:""
+                }
+                var p = Promise.resolve(res);
+                p.catch((err)=>{});
+                execResponse = p;
+
+                var nodeInfo = {nodes:{module:"this_is_allowed",types:["a"]}};
+
+                var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                    return Promise.resolve(nodeInfo);
+                });
+                sinon.stub(typeRegistry,"setModulePendingUpdated").callsFake(function() {
+                    return Promise.resolve(nodeInfo);
+                });
+
+                installer.installModule("this_is_allowed","0.1.2").then(function() {
+                    done();
+                }).catch(done);
+            })
+            it("rejects when update requested with module on denyUpdateList", function(done) {
+                installer.init({ externalModules: { palette: { denyUpdateList: ['this_wont_exist'] } } })
+                sinon.stub(typeRegistry,"getModuleInfo").callsFake(function() {
+                    return {
+                        user: true,
+                        version: "0.1.1"
+                    }
+                });
+
+                var res = {
+                    code: 0,
+                    stdout:"",
+                    stderr:""
+                }
+                var p = Promise.resolve(res);
+                p.catch((err)=>{});
+                execResponse = p;
+
+                var nodeInfo = {nodes:{module:"this_is_allowed",types:["a"]}};
+
+                var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                    return Promise.resolve(nodeInfo);
+                });
+                sinon.stub(typeRegistry,"setModulePendingUpdated").callsFake(function() {
+                    return Promise.resolve(nodeInfo);
+                });
+
+                installer.installModule("this_wont_exist","0.1.2").catch(function(err) {
+                    err.code.should.be.eql('update_not_allowed');
+                    done();
+                }).catch(done);
+            })
+            it("succeeds when update requested with module on allowUpdateList", function(done) {
+                installer.init({ externalModules: { palette: { allowUpdateList: ['this_is_allowed'] } } })
+                sinon.stub(typeRegistry,"getModuleInfo").callsFake(function() {
+                    return {
+                        user: true,
+                        version: "0.1.1"
+                    }
+                });
+
+                var res = {
+                    code: 0,
+                    stdout:"",
+                    stderr:""
+                }
+                var p = Promise.resolve(res);
+                p.catch((err)=>{});
+                execResponse = p;
+
+                var nodeInfo = {nodes:{module:"this_is_allowed",types:["a"]}};
+
+                var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                    return Promise.resolve(nodeInfo);
+                });
+                sinon.stub(typeRegistry,"setModulePendingUpdated").callsFake(function() {
+                    return Promise.resolve(nodeInfo);
+                });
+
+                installer.installModule("this_is_allowed","0.1.2").then(function() {
+                    done();
+                }).catch(done);
+            })
+            it("rejects when update requested with module not on allowUpdateList", function(done) {
+            installer.init({ externalModules: { palette: { allowUpdateList: ['this_is_allowed'] } } })
+            sinon.stub(typeRegistry,"getModuleInfo").callsFake(function() {
+                return {
+                    user: true,
+                    version: "0.1.1"
+                }
+            });
+
+            var res = {
+                code: 0,
+                stdout:"",
+                stderr:""
+            }
+            var p = Promise.resolve(res);
+            p.catch((err)=>{});
+            execResponse = p;
+
+            var nodeInfo = {nodes:{module:"this_wont_exist",types:["a"]}};
+
+            var addModule = sinon.stub(registry,"addModule").callsFake(function(md) {
+                return Promise.resolve(nodeInfo);
+            });
+            sinon.stub(typeRegistry,"setModulePendingUpdated").callsFake(function() {
+                return Promise.resolve(nodeInfo);
+            });
+
+            installer.installModule("this_wont_exist","0.1.2").catch(function(err) {
+                err.code.should.be.eql('update_not_allowed');
+                done();
+            }).catch(done);
+        })
+        });
     });
     describe("uninstalls module", function() {
         it("rejects invalid module names", function(done) {
@@ -355,6 +531,9 @@ describe('nodes/registry/installer', function() {
             var nodeInfo = [{module:"foo",types:["a"]}];
             var removeModule = sinon.stub(typeRegistry,"removeModule").callsFake(function(md) {
                 return nodeInfo;
+            });
+            let removePluginModule = sinon.stub(pluginRegistry,"removeModule").callsFake(function(md) {
+                return [];
             });
             var getModuleInfo = sinon.stub(registry,"getModuleInfo").callsFake(function(md) {
                 return {nodes:[]};
